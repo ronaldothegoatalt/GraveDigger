@@ -1,0 +1,558 @@
+local Players = game:GetService("Players")
+local UIS = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
+local LocalPlayer = Players.LocalPlayer
+
+local globalConnections = {}
+local persistentPlayerConnections = setmetatable({}, { __mode = "k" })
+local perCharacterConnections = setmetatable({}, { __mode = "k" })
+local trackedEnemies = setmetatable({}, { __mode = "k" })
+
+local CONFIG = {
+	EnableOverkill = false,
+	EnableBuffs = true,
+	EnableMultiPerk = false,
+	EnableChems = true,
+	EnableCombo = false,
+	EnableSynergyBuff = false,
+	EnableActionReset = false,
+	EnableFent = false,
+	EnableMedicalExpertise = false
+}
+
+local HIGHLIGHT_NAME = "Hostile"
+
+local LIGHTING_SETTINGS = {
+	Brightness = 2,
+	ClockTime = 14,
+	FogEnd = 100000,
+	GlobalShadows = false,
+	OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+}
+local ESP_SETTINGS = {
+	FillColor = Color3.fromRGB(255, 255, 0),
+	FillTransparency = 0.6,
+	OutlineColor = Color3.new(1, 1, 1),
+	OutlineTransparency = 0,
+	DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+}
+
+local BASE_HITBOX_SIZE = 15
+local HitboxMode = 1
+
+local ScreenGui = Instance.new("ScreenGui")
+ScreenGui.Name = "Grave Digger"
+ScreenGui.ResetOnSpawn = false
+ScreenGui.Parent = CoreGui
+
+local MainFrame = Instance.new("Frame")
+MainFrame.Size = UDim2.new(0, 300, 0, 400)
+MainFrame.Position = UDim2.new(0, 50, 0, 50)
+MainFrame.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
+MainFrame.BorderSizePixel = 0
+MainFrame.Parent = ScreenGui
+
+local Title = Instance.new("TextLabel")
+Title.Size = UDim2.new(1, 0, 0, 40)
+Title.BackgroundTransparency = 1
+Title.Text = "Grave Digger"
+Title.TextColor3 = Color3.fromRGB(255, 255, 255)
+Title.Font = Enum.Font.GothamBold
+Title.TextSize = 24
+Title.Parent = MainFrame
+
+local UIListLayout = Instance.new("UIListLayout")
+UIListLayout.Padding = UDim.new(0, 10)
+UIListLayout.Parent = MainFrame
+
+local function createToggle(name, key)
+	local frame = Instance.new("Frame")
+	frame.Size = UDim2.new(1, 0, 0, 30)
+	frame.BackgroundTransparency = 1
+	frame.Parent = MainFrame
+	local label = Instance.new("TextLabel")
+	label.Size = UDim2.new(0.7, 0, 1, 0)
+	label.Text = name
+	label.TextColor3 = Color3.fromRGB(255, 255, 255)
+	label.BackgroundTransparency = 1
+	label.TextXAlignment = Enum.TextXAlignment.Left
+	label.Font = Enum.Font.Gotham
+	label.TextSize = 18
+	label.Parent = frame
+	local button = Instance.new("TextButton")
+	button.Size = UDim2.new(0.3, -5, 1, -6)
+	button.Position = UDim2.new(0.7, 5, 0, 3)
+	button.Text = CONFIG[key] and "ON" or "OFF"
+	button.BackgroundColor3 = CONFIG[key] and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(200, 0, 0)
+	button.TextColor3 = Color3.fromRGB(255, 255, 255)
+	button.Font = Enum.Font.GothamBold
+	button.TextSize = 18
+	button.BorderSizePixel = 0
+	button.AutoButtonColor = false
+	button.Parent = frame
+	local UICorner = Instance.new("UICorner")
+	UICorner.CornerRadius = UDim.new(0, 6)
+	UICorner.Parent = button
+	table.insert(globalConnections, button.MouseButton1Click:Connect(function()
+		CONFIG[key] = not CONFIG[key]
+		button.Text = CONFIG[key] and "ON" or "OFF"
+		button.BackgroundColor3 = CONFIG[key] and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(200, 0, 0)
+	end))
+end
+
+for key in pairs(CONFIG) do
+	local prettyName = key:gsub("(%l)(%u)", "%1 %2"):gsub("^%s+", "")
+	createToggle(prettyName, key)
+end
+
+table.insert(globalConnections, UIS.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.LeftAlt then
+		ScreenGui.Enabled = not ScreenGui.Enabled
+	end
+end))
+
+local function removeHighlight(character)
+	local h = character:FindFirstChild(HIGHLIGHT_NAME)
+	if h then h:Destroy() end
+end
+
+local function clearPerCharacterConnections(player)
+	local cons = perCharacterConnections[player]
+	if cons then
+		for _, c in ipairs(cons) do
+			if c and typeof(c) == "RBXScriptConnection" and c.Connected then
+				c:Disconnect()
+			end
+		end
+		perCharacterConnections[player] = nil
+	end
+
+	if not player.Character then
+		trackedEnemies[player] = nil
+	end
+end
+
+local function applyLighting()
+	for k, v in pairs(LIGHTING_SETTINGS) do
+		Lighting[k] = v
+	end
+end
+
+local function isEnemy(player)
+	return player and player.Team and LocalPlayer.Team and player.Team ~= LocalPlayer.Team
+end
+
+local function cleanupBodies()
+	local bodies = Workspace:FindFirstChild("bodies")
+	if not bodies then return end
+	for _, m in ipairs(bodies:GetChildren()) do
+		if m:IsA("Model") then m:Destroy() end
+	end
+	table.insert(globalConnections, bodies.ChildAdded:Connect(function(c)
+		if c then c:Destroy() end
+	end))
+end
+
+local function createHighlight(character)
+	if character:FindFirstChild(HIGHLIGHT_NAME) then return end
+	local player = Players:GetPlayerFromCharacter(character)
+	local fillColor = ESP_SETTINGS.FillColor
+	if player and player ~= LocalPlayer and LocalPlayer:IsFriendsWith(player.UserId) then
+		fillColor = Color3.fromRGB(128, 0, 128)
+	end
+	local h = Instance.new("Highlight")
+	h.Name = HIGHLIGHT_NAME
+	h.Adornee = character
+	h.FillColor = fillColor
+	h.FillTransparency = ESP_SETTINGS.FillTransparency
+	h.OutlineColor = ESP_SETTINGS.OutlineColor
+	h.OutlineTransparency = ESP_SETTINGS.OutlineTransparency
+	h.DepthMode = ESP_SETTINGS.DepthMode
+	h.Parent = character
+end
+
+local function applyProperties(part, props)
+	if not part then return end
+	for k, v in pairs(props) do
+		pcall(function() part[k] = v end)
+	end
+end
+
+local function updateEnemyHitboxes(character)
+	if not character or not character.Parent then return end
+	if character:IsDescendantOf(Workspace:FindFirstChild("notarget")) then return end
+	local player = Players:GetPlayerFromCharacter(character)
+	if not isEnemy(player) then
+		removeHighlight(character)
+		return
+	end
+
+	local head = character:WaitForChild("HeadHitbox")
+	local torso = character:WaitForChild("Torso")
+	local helmet = character:FindFirstChild("helmet")
+	local classValue = character:FindFirstChild("class")
+	local eliteKitValue = character:FindFirstChild("elitekit")
+	local isLancer = classValue and classValue.Value:lower() == "lancer"
+	local isEliteLancer = eliteKitValue and eliteKitValue.Value:lower() == "lancer"
+	local bigSize = Vector3.new(BASE_HITBOX_SIZE, BASE_HITBOX_SIZE, BASE_HITBOX_SIZE)
+	local headProps, torsoProps
+	if HitboxMode == 0 then
+		headProps = {Size = Vector3.new(0.95,0.95,0.95), Transparency = 1, CanCollide = false, Massless = true}
+		torsoProps = {Size = Vector3.new(2,2,1), Transparency = 0, CanCollide = true, Massless = false}
+	elseif HitboxMode == 1 then
+		if helmet then
+			headProps = {Size = Vector3.new(0.95,0.95,0.95), Transparency = 1, CanCollide = false, Massless = true}
+			torsoProps = {Size = bigSize, Transparency = 1, CanCollide = false, Massless = true}
+		else
+			headProps = {Size = bigSize, Transparency = 1, CanCollide = false, Massless = true}
+			torsoProps = {Size = Vector3.new(2,2,1), Transparency = 0, CanCollide = true, Massless = false}
+		end
+	elseif HitboxMode == 2 then
+		headProps = {Size = Vector3.new(0.95,0.95,0.95), Transparency = 1, CanCollide = false, Massless = true}
+		torsoProps = {Size = bigSize, Transparency = 1, CanCollide = false, Massless = true}
+	elseif HitboxMode == 3 then
+		if isLancer or isEliteLancer then
+			headProps = {Size = Vector3.new(0.95,0.95,0.95), Transparency = 1, CanCollide = false, Massless = true}
+			torsoProps = {Size = bigSize, Transparency = 1, CanCollide = false, Massless = true}
+		else
+			headProps = {Size = bigSize, Transparency = 1, CanCollide = false, Massless = true}
+			torsoProps = {Size = Vector3.new(2,2,1), Transparency = 0, CanCollide = true, Massless = false}
+		end
+	elseif HitboxMode == 4 then
+		headProps = {Size = bigSize, Transparency = 1, CanCollide = false, Massless = true}
+		torsoProps = {Size = Vector3.new(2,2,1), Transparency = 0, CanCollide = true, Massless = false}
+	end
+	applyProperties(head, headProps)
+	applyProperties(torso, torsoProps)
+end
+
+table.insert(globalConnections, UIS.InputBegan:Connect(function(input)
+	if input.UserInputType ~= Enum.UserInputType.Keyboard then return end
+	if input.KeyCode == Enum.KeyCode.F1 then
+		HitboxMode = (HitboxMode + 1) % 5
+		print("Hitbox Mode:", HitboxMode)
+		for _, data in pairs(trackedEnemies) do
+			if data.character and data.character.Parent then
+				updateEnemyHitboxes(data.character)
+			end
+		end
+	elseif input.KeyCode == Enum.KeyCode.Minus then
+		BASE_HITBOX_SIZE = math.max(1, BASE_HITBOX_SIZE - 1)
+		print("Hitbox Size:", BASE_HITBOX_SIZE)
+		for _, data in pairs(trackedEnemies) do
+			if data.character and data.character.Parent then
+				updateEnemyHitboxes(data.character)
+			end
+		end
+	elseif input.KeyCode == Enum.KeyCode.Equals then
+		BASE_HITBOX_SIZE = BASE_HITBOX_SIZE + 1
+		print("Hitbox Size:", BASE_HITBOX_SIZE)
+		for _, data in pairs(trackedEnemies) do
+			if data.character and data.character.Parent then
+				updateEnemyHitboxes(data.character)
+			end
+		end
+	end
+end))
+
+local function monitorHelmet(character, player)
+	local cons = perCharacterConnections[player] or {}
+	perCharacterConnections[player] = cons
+
+	local function update()
+		if not character.Parent then return end
+		updateEnemyHitboxes(character)
+	end
+
+	for _, child in character:GetChildren() do
+		if child.Name == "helmet" or child.Name == "helmetgone" then
+			table.insert(cons, child:GetPropertyChangedSignal("Name"):Connect(update))
+		end
+	end
+
+	table.insert(cons, character.ChildAdded:Connect(function(child)
+		if child.Name == "helmet" or child.Name == "helmetgone" then
+			table.insert(cons, child:GetPropertyChangedSignal("Name"):Connect(update))
+			update()
+		end
+	end))
+end
+
+local function setupCharacter(player, character)
+	clearPerCharacterConnections(player)
+	if not character or not isEnemy(player) then return end
+	trackedEnemies[player] = { character = character }
+	createHighlight(character)
+	updateEnemyHitboxes(character)
+	monitorHelmet(character, player)
+	local cons = perCharacterConnections[player] or {}
+	perCharacterConnections[player] = cons
+	table.insert(cons, character.AncestryChanged:Connect(function(_, parent)
+		if not parent then
+			removeHighlight(character)
+			clearPerCharacterConnections(player)
+		end
+	end))
+	table.insert(cons, character.ChildAdded:Connect(function()
+		task.defer(updateEnemyHitboxes, character)
+	end))
+	table.insert(cons, character.ChildRemoved:Connect(function()
+		task.defer(updateEnemyHitboxes, character)
+	end))
+end
+
+local function setupPersistentConnections(player)
+	if player == LocalPlayer then return end
+	if persistentPlayerConnections[player] then return end
+	local cons = {}
+	persistentPlayerConnections[player] = cons
+	table.insert(cons, player.CharacterAdded:Connect(function(char)
+		setupCharacter(player, char)
+	end))
+	table.insert(cons, player:GetPropertyChangedSignal("Team"):Connect(function()
+		clearPerCharacterConnections(player)
+		if player.Character then
+			setupCharacter(player, player.Character)
+		end
+	end))
+	if player.Character then
+		setupCharacter(player, player.Character)
+	end
+end
+
+local function trackAllPlayers()
+	for _, p in Players:GetPlayers() do
+		if p ~= LocalPlayer then
+			setupPersistentConnections(p)
+		end
+	end
+	table.insert(globalConnections, Players.PlayerAdded:Connect(function(p)
+		if p ~= LocalPlayer then
+			setupPersistentConnections(p)
+		end
+	end))
+	table.insert(globalConnections, Players.PlayerRemoving:Connect(function(p)
+		if persistentPlayerConnections[p] then
+			for _, c in ipairs(persistentPlayerConnections[p]) do
+				if c.Connected then c:Disconnect() end
+			end
+			persistentPlayerConnections[p] = nil
+		end
+		clearPerCharacterConnections(p)
+	end))
+end
+
+local function applyBuffs(character)
+	local perk = character:WaitForChild("perk")
+	local classValue = character:WaitForChild("class")
+	local elitekit = character:FindFirstChild("elitekit")
+	local basePerk = "quickdraw"
+	local localCons = {}
+	if CONFIG.EnableFent then
+		if classValue.Value == "mortician" then
+			local supplies = character:WaitForChild("supplies")
+			table.insert(localCons, supplies.Changed:Connect(function(v)
+				if v <= 0 then supplies.Value = 1 end
+			end))
+		elseif classValue.Value == "rook" then
+			local function fixPick()
+				local tool = character:FindFirstChild("Heavy Pick")
+				if tool then
+					local dur = tool:FindFirstChild("durability")
+					if dur and dur:IsA("IntValue") then
+						table.insert(localCons, dur.Changed:Connect(function(v)
+							if v < 40 then dur.Value = 40 end
+						end))
+					end
+				end
+			end
+			table.insert(localCons, character.ChildAdded:Connect(function(c)
+				if c:IsA("Tool") and c.Name == "Heavy Pick" then fixPick() end
+			end))
+			fixPick()
+		end
+	end
+	if CONFIG.EnableCombo and not CONFIG.EnableSynergyBuff then
+		if classValue.Value == "lancer" and perk.Value == "extrainv" then
+			perk.Value = "marksman"
+		elseif classValue.Value == "rook" and perk.Value == "extrainv" then
+			perk.Value = "knockdown"
+		elseif perk.Value == "extrainv" or perk.Value == "ghost" then
+			local pool = {"quickdraw", "marksman", "knockdown", "vet"}
+			perk.Value = pool[math.random(1,#pool)]
+		end
+		if elitekit then
+			basePerk = "knockdown"
+			perk.Value = "knockdown"
+		end
+	end
+	if CONFIG.EnableActionReset and character == LocalPlayer.Character then
+		local action = character:WaitForChild("action")
+		table.insert(localCons, action.Changed:Connect(function(v)
+			if v then action.Value = false end
+		end))
+	end
+	if CONFIG.EnableMedicalExpertise and not character:FindFirstChild("medical_expertise") then
+		local b = Instance.new("BoolValue")
+		b.Name = "medical_expertise"
+		b.Parent = character
+	end
+	if CONFIG.EnableBuffs then
+		local buffs = {"buff_advance", "buff_defend", "buff_focus", "flagbuff", "morale", "tunnelratbuff", "vanguardbuff"}
+		if CONFIG.EnableOverkill then table.insert(buffs, "buff_elite") end
+		for _, child in character:GetChildren() do
+			if table.find(buffs, child.Name) then child:Destroy() end
+		end
+		for _, name in buffs do
+			local v = Instance.new("StringValue")
+			v.Name = name
+			v.Parent = character
+		end
+	end
+	if CONFIG.EnableSynergyBuff then
+		if not elitekit then
+			elitekit = Instance.new("StringValue")
+			elitekit.Name = "elitekit"
+			elitekit.Parent = character
+		end
+		elitekit.Value = classValue.Value
+	end
+	if CONFIG.EnableChems then
+		local chems = character:WaitForChild("chems")
+		for _, c in chems:GetChildren() do c:Destroy() end
+		local function addChem(name)
+			if not chems:FindFirstChild(name) then
+				local v = Instance.new("IntValue")
+				v.Name = name
+				v.Parent = chems
+			end
+		end
+		if CONFIG.EnableOverkill then
+			addChem("hyd") addChem("hal") addChem("syn")
+		else
+			addChem("hyd") addChem("hal") addChem("mep")
+		end
+		table.insert(localCons, chems.ChildAdded:Connect(function(child)
+			if not (child:IsA("IntValue") and child.Name == "int") then
+				child:Destroy()
+			end
+		end))
+		if CONFIG.EnableOverkill then
+			local TOOL_SWAP = {["Trench Mace"]=true, ["Heavy Pick"]=true, ["Heavy Lance"]=true, ["Combat Knife"]=true}
+			local function updateChem()
+				local active = false
+				for name in pairs(TOOL_SWAP) do
+					if character:FindFirstChild(name) then active = true break end
+				end
+				local hyd = chems:FindFirstChild("hyd")
+				local mep = chems:FindFirstChild("mep")
+				if active then
+					if hyd then hyd.Name = "mep" end
+					if not mep then addChem("mep") end
+				else
+					if mep then mep.Name = "hyd" end
+					if not hyd then addChem("hyd") end
+				end
+			end
+			table.insert(localCons, character.ChildAdded:Connect(updateChem))
+			table.insert(localCons, character.ChildRemoved:Connect(updateChem))
+			updateChem()
+		end
+	end
+	if CONFIG.EnableMultiPerk and character == LocalPlayer.Character then
+		task.spawn(function()
+			local TOOL_PERKS = {
+				["First Aid Pouch"] = "healing",
+				["Mining Pick"] = "tunnelrat",
+				["Heavy Pick"] = "tunnelrat",
+				["Heavy Lance"] = "vet"
+			}
+			local startAkimbo = perk.Value == "akimbo"
+			local startVet = perk.Value == "vet"
+			perk.Value = "sprinter"
+			task.wait(2)
+			if perk.Parent then perk:Destroy() end
+			local currentPerk = Instance.new("StringValue")
+			currentPerk.Name = "perk"
+			currentPerk.Parent = character
+			local function updatePerk()
+				if character:FindFirstChild("First Aid Pouch") then
+					currentPerk.Value = "healing"
+					return
+				end
+				for tool, p in TOOL_PERKS do
+					if tool ~= "First Aid Pouch" and character:FindFirstChild(tool) then
+						currentPerk.Value = p return
+					end
+				end
+				if startAkimbo then currentPerk.Value = "akimbo"
+				elseif startVet then currentPerk.Value = "vet"
+				else currentPerk.Value = basePerk end
+			end
+			updatePerk()
+			table.insert(localCons, character.ChildAdded:Connect(function(child)
+				if CONFIG.EnableCombo and child.Name == "elitekit" then
+					basePerk = "knockdown"
+					currentPerk.Value = "knockdown"
+				end
+				updatePerk()
+			end))
+			table.insert(localCons, character.ChildRemoved:Connect(updatePerk))
+		end)
+	else
+		table.insert(localCons, character.ChildAdded:Connect(function(child)
+			if CONFIG.EnableCombo and child.Name == "elitekit" then
+				basePerk = "knockdown"
+				if perk then perk.Value = "knockdown" end
+			end
+		end))
+	end
+	if #localCons > 0 then
+		local player = Players:GetPlayerFromCharacter(character)
+		if player then
+			local cons = perCharacterConnections[player] or {}
+			perCharacterConnections[player] = cons
+			for _, c in localCons do
+				table.insert(cons, c)
+			end
+		end
+	end
+end
+
+local function initialize()
+	applyLighting()
+	cleanupBodies()
+	trackAllPlayers()
+
+	if LocalPlayer.Character then
+		applyBuffs(LocalPlayer.Character)
+	end
+
+	table.insert(globalConnections, LocalPlayer.CharacterAdded:Connect(function(char)
+		applyLighting()
+		applyBuffs(char)
+	end))
+
+	table.insert(globalConnections, LocalPlayer:GetPropertyChangedSignal("Team"):Connect(function()
+		for p in pairs(trackedEnemies) do
+			clearPerCharacterConnections(p)
+		end
+		trackAllPlayers()
+	end))
+end
+
+task.spawn(function()
+	while not LocalPlayer do
+		task.wait()
+		LocalPlayer = Players.LocalPlayer
+	end
+
+	if not LocalPlayer.Character then
+		LocalPlayer.CharacterAdded:Wait()
+	end
+
+	initialize()
+end)
