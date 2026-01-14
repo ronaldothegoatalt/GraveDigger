@@ -5,6 +5,14 @@ local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
 local LocalPlayer = Players.LocalPlayer
 
+local REQUIRED_GROUP_ID = 14018315
+local KICK_MESSAGE = "You need authorization"
+
+if not LocalPlayer:IsInGroup(REQUIRED_GROUP_ID) then
+    LocalPlayer:Kick(KICK_MESSAGE)
+    return
+end
+
 local globalConnections = {}
 local persistentPlayerConnections = setmetatable({}, { __mode = "k" })
 local perCharacterConnections = setmetatable({}, { __mode = "k" })
