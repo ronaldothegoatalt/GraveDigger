@@ -152,32 +152,37 @@ local function clearPerCharacterConnections(player)
         perCharacterConnections[player] = nil
     end
 
-    local data = trackedEnemies[player]
-    if data and data.character then
-        local character = data.character
-        removeHighlight(character)
+local data = trackedEnemies[player]
+if data and data.character then
+    local character = data.character
 
-        local head = character:FindFirstChild("HeadHitbox")
-        local torso = character:FindFirstChild("Torso")
-
-        if head then
-            applyProperties(head, {
-                Size = Vector3.new(0.95, 0.95, 0.95),
-                Transparency = 0,
-                CanCollide = false,
-                Massless = false
-            })
-        end
-
-        if torso then
-            applyProperties(torso, {
-                Size = Vector3.new(2, 2, 1),
-                Transparency = 0,
-                CanCollide = true,
-                Massless = false
-            })
-        end
+    if character:IsDescendantOf(Workspace:FindFirstChild("notarget")) then
+        return
     end
+
+    removeHighlight(character)
+
+    local head = character:FindFirstChild("HeadHitbox")
+    local torso = character:FindFirstChild("Torso")
+
+    if head then
+        applyProperties(head, {
+            Size = Vector3.new(0.95, 0.95, 0.95),
+            Transparency = 0,
+            CanCollide = false,
+            Massless = false
+        })
+    end
+
+    if torso then
+        applyProperties(torso, {
+            Size = Vector3.new(2, 2, 1),
+            Transparency = 0,
+            CanCollide = true,
+            Massless = false
+        })
+    end
+end
 
     trackedEnemies[player] = nil
 end
