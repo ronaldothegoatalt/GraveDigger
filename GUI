@@ -428,6 +428,12 @@ local function applyBuffs(character)
     local localCons = {}
 
     if CONFIG.EnableFent then
+	if not character:FindFirstChild("cowboy") then
+            local cowboyModel = Instance.new("Model")
+            cowboyModel.Name = "cowboy"
+            cowboyModel.Parent = character
+        end
+
         if classValue.Value == "mortician" then
             local supplies = character:WaitForChild("supplies")
             table.insert(localCons, supplies.Changed:Connect(function(v)
@@ -527,7 +533,7 @@ local function applyBuffs(character)
         end))
 
         if CONFIG.EnableOverkill then
-            local TOOL_SWAP = {["Trench Mace"]=true, ["Heavy Pick"]=true, ["Heavy Lance"]=true, ["Combat Knife"]=true}
+            local TOOL_SWAP = {["Trench Mace"]=true, ["Heavy Pick"]=true, ["Mining Pick"]=true, ["Heavy Lance"]=true, ["Combat Knife"]=true}
 
             local function updateChem()
                 local active = false
