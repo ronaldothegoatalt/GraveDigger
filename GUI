@@ -27,6 +27,7 @@ local CONFIG = {
     EnableSynergyBuff = false,
     EnableActionReset = false,
     EnableFent = false,
+	EnableSpeed = false, 
     EnableMedicalExpertise = false
 }
 
@@ -427,13 +428,29 @@ local function applyBuffs(character)
     local basePerk = "quickdraw"
     local localCons = {}
 
-    if CONFIG.EnableFent then
-	if not character:FindFirstChild("cowboy") then
+    if CONFIG.EnableSpeed then
+        CONFIG.EnableSynergyBuff = false
+    end
+
+    if CONFIG.EnableSpeed then
+        if not character:FindFirstChild("cowboy") then
             local cowboyModel = Instance.new("Model")
             cowboyModel.Name = "cowboy"
             cowboyModel.Parent = character
         end
 
+        classValue.Value = "officer"
+
+        if not elitekit then
+            elitekit = Instance.new("StringValue")
+            elitekit.Name = "elitekit"
+            elitekit.Parent = character
+        end
+
+        elitekit.Value = (math.random(1, 2) == 1) and "ocelot" or "officer"
+    end
+
+    if CONFIG.EnableFent then
         if classValue.Value == "mortician" then
             local supplies = character:WaitForChild("supplies")
             table.insert(localCons, supplies.Changed:Connect(function(v)
@@ -465,7 +482,7 @@ local function applyBuffs(character)
             perk.Value = "knockdown"
         elseif perk.Value == "extrainv" or perk.Value == "ghost" then
             local pool = {"quickdraw", "marksman", "knockdown", "vet"}
-            perk.Value = pool[math.random(1,#pool)]
+            perk.Value = pool[math.random(1, #pool)]
         end
         if elitekit then
             basePerk = "knockdown"
@@ -487,10 +504,22 @@ local function applyBuffs(character)
     end
 
     if CONFIG.EnableBuffs then
-        local buffs = {"buff_advance", "buff_defend", "buff_focus", "flagbuff", "morale", "tunnelratbuff", "vanguardbuff"}
-        if CONFIG.EnableOverkill then table.insert(buffs, "buff_elite") end
+        local buffs = {
+            "buff_advance",
+            "buff_defend",
+            "buff_focus",
+            "flagbuff",
+            "morale",
+            "tunnelratbuff",
+            "vanguardbuff"
+        }
+        if CONFIG.EnableOverkill then
+            table.insert(buffs, "buff_elite")
+        end
         for _, child in character:GetChildren() do
-            if table.find(buffs, child.Name) then child:Destroy() end
+            if table.find(buffs, child.Name) then
+                child:Destroy()
+            end
         end
         for _, name in buffs do
             local v = Instance.new("StringValue")
@@ -510,7 +539,9 @@ local function applyBuffs(character)
 
     if CONFIG.EnableChems then
         local chems = character:WaitForChild("chems")
-        for _, c in chems:GetChildren() do c:Destroy() end
+        for _, c in chems:GetChildren() do
+            c:Destroy()
+        end
 
         local function addChem(name)
             if not chems:FindFirstChild(name) then
@@ -521,9 +552,13 @@ local function applyBuffs(character)
         end
 
         if CONFIG.EnableOverkill then
-            addChem("hyd") addChem("hal") addChem("syn")
+            addChem("hyd")
+            addChem("hal")
+            addChem("syn")
         else
-            addChem("hyd") addChem("hal") addChem("mep")
+            addChem("hyd")
+            addChem("hal")
+            addChem("mep")
         end
 
         table.insert(localCons, chems.ChildAdded:Connect(function(child)
@@ -531,30 +566,6 @@ local function applyBuffs(character)
                 child:Destroy()
             end
         end))
-
-        if CONFIG.EnableOverkill then
-            local TOOL_SWAP = {["Trench Mace"]=true, ["Heavy Pick"]=true, ["Mining Pick"]=true, ["Heavy Lance"]=true, ["Combat Knife"]=true}
-
-            local function updateChem()
-                local active = false
-                for name in pairs(TOOL_SWAP) do
-                    if character:FindFirstChild(name) then active = true break end
-                end
-                local hyd = chems:FindFirstChild("hyd")
-                local mep = chems:FindFirstChild("mep")
-                if active then
-                    if hyd then hyd.Name = "mep" end
-                    if not mep then addChem("mep") end
-                else
-                    if mep then mep.Name = "hyd" end
-                    if not hyd then addChem("hyd") end
-                end
-            end
-
-            table.insert(localCons, character.ChildAdded:Connect(updateChem))
-            table.insert(localCons, character.ChildRemoved:Connect(updateChem))
-            updateChem()
-        end
     end
 
     if CONFIG.EnableMultiPerk and character == LocalPlayer.Character then
@@ -563,11 +574,9 @@ local function applyBuffs(character)
                 ["First Aid Pouch"] = "healing",
                 ["Mining Pick"] = "tunnelrat",
                 ["Heavy Pick"] = "tunnelrat",
-                ["Heavy Lance"] = "vet"
             }
 
             local startAkimbo = perk.Value == "akimbo"
-            local startVet = perk.Value == "vet"
 
             perk.Value = "sprinter"
             task.wait(2)
@@ -583,43 +592,88 @@ local function applyBuffs(character)
                     return
                 end
                 for tool, p in pairs(TOOL_PERKS) do
-                    if tool ~= "First Aid Pouch" and character:FindFirstChild(tool) then
-                        currentPerk.Value = p return
+                    if character:FindFirstChild(tool) then
+                        currentPerk.Value = p
+                        return
                     end
                 end
-                if startAkimbo then currentPerk.Value = "akimbo"
-                elseif startVet then currentPerk.Value = "vet"
-                else currentPerk.Value = basePerk end
+                if startAkimbo then
+                    currentPerk.Value = "akimbo"
+                else
+                    currentPerk.Value = basePerk
+                end
             end
 
             updatePerk()
-
-            table.insert(localCons, character.ChildAdded:Connect(function(child)
-                if CONFIG.EnableCombo and child.Name == "elitekit" then
-                    basePerk = "knockdown"
-                    currentPerk.Value = "knockdown"
-                end
-                updatePerk()
-            end))
-
+            table.insert(localCons, character.ChildAdded:Connect(updatePerk))
             table.insert(localCons, character.ChildRemoved:Connect(updatePerk))
-        end)
-    else
-        table.insert(localCons, character.ChildAdded:Connect(function(child)
-            if CONFIG.EnableCombo and child.Name == "elitekit" then
-                basePerk = "knockdown"
-                if perk then perk.Value = "knockdown" end
+
+            local active = false
+            local actionConn
+
+            local BLACKLISTED_TOOLS = {
+                ["Trench Mace"] = true,
+                ["First Aid Pouch"] = true,
+                ["Combat Knife"] = true,
+                ["Mining Pick"] = true,
+                ["Heavy Lance"] = true,
+                ["Heavy Pick"] = true,
+                ["'Commissar's Gift'"] = true,
+            }
+
+            local function hasValidTool()
+                for _, child in ipairs(character:GetChildren()) do
+                    if child:IsA("Tool") and not BLACKLISTED_TOOLS[child.Name] then
+                        return true
+                    end
+                end
+                return false
             end
-        end))
+
+            table.insert(localCons, UIS.InputBegan:Connect(function(input, processed)
+                if processed or input.KeyCode ~= Enum.KeyCode.R then return end
+                if active then return end
+
+                local action = character:WaitForChild("action")
+                if not action or action.Value ~= false then return end
+                if not hasValidTool() then return end
+
+                active = true
+                local original = currentPerk.Value
+                currentPerk.Value = "vet"
+
+                task.delay(1, function()
+                    if not action.Parent or action.Value ~= true then
+                        currentPerk.Value = original
+                        active = false
+                        return
+                    end
+
+                    actionConn = action.Changed:Connect(function(v)
+                        if v == false then
+                            task.delay(0.8, function()
+                                if currentPerk.Parent then
+                                    currentPerk.Value = original
+                                end
+                                if actionConn then
+                                    actionConn:Disconnect()
+                                    actionConn = nil
+                                end
+                                active = false
+                            end)
+                        end
+                    end)
+                end)
+            end))
+        end)
     end
 
     if #localCons > 0 then
         local player = Players:GetPlayerFromCharacter(character)
         if player then
-            local cons = perCharacterConnections[player] or {}
-            perCharacterConnections[player] = cons
+            perCharacterConnections[player] = perCharacterConnections[player] or {}
             for _, c in localCons do
-                table.insert(cons, c)
+                table.insert(perCharacterConnections[player], c)
             end
         end
     end
