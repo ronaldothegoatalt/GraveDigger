@@ -14,9 +14,9 @@ if not LocalPlayer:IsInGroup(REQUIRED_GROUP_ID) then
 end
 
 local globalConnections = {}
-local persistentPlayerConnections = setmetatable({}, { __mode = "k" })
-local perCharacterConnections = setmetatable({}, { __mode = "k" })
-local trackedEnemies = setmetatable({}, { __mode = "k" })
+local persistentPlayerConnections = setmetatable({}, {__mode = "k"})
+local perCharacterConnections = setmetatable({}, {__mode = "k"})
+local trackedEnemies = setmetatable({}, {__mode = "k"})
 
 local CONFIG = {
     EnableOverkill = false,
@@ -27,11 +27,11 @@ local CONFIG = {
     EnableSynergyBuff = false,
     EnableActionReset = false,
     EnableFent = false,
-	EnableSpeed = false, 
+    EnableSpeed = false,
     EnableMedicalExpertise = false
 }
 
-local HIGHLIGHT_NAME = "Hostile"
+local HIGHLIGHT_NAME = "Prey"
 
 local LIGHTING_SETTINGS = {
     Brightness = 2,
@@ -42,7 +42,7 @@ local LIGHTING_SETTINGS = {
 }
 
 local ESP_SETTINGS = {
-    FillColor = Color3.fromRGB(255, 255, 0),
+    FillColor = Color3.fromRGB(192, 192, 192),
     FillTransparency = 0.6,
     OutlineColor = Color3.new(1, 1, 1),
     OutlineTransparency = 0,
@@ -117,9 +117,51 @@ local function createToggle(name, key)
 end
 
 for key in pairs(CONFIG) do
-    local prettyName = key:gsub("(%l)(%u)", "%1 %2"):gsub("^%s+", "")
+    local prettyName = key:gsub("(%l)(%u)", "%1 %2")
     createToggle(prettyName, key)
 end
+
+local function createActionButton(name, callback)
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 30)
+    frame.BackgroundTransparency = 1
+    frame.Parent = MainFrame
+
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, -10, 1, 0)
+    button.Position = UDim2.new(0, 5, 0, 0)
+    button.Text = name
+    button.BackgroundColor3 = Color3.fromRGB(60, 60, 180)
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.Font = Enum.Font.GothamBold
+    button.TextSize = 18
+    button.BorderSizePixel = 0
+    button.AutoButtonColor = false
+    button.Parent = frame
+
+    local UICorner = Instance.new("UICorner")
+    UICorner.CornerRadius = UDim.new(0, 6)
+    UICorner.Parent = button
+
+    table.insert(globalConnections, button.MouseButton1Click:Connect(function()
+        local originalColor = button.BackgroundColor3
+        button.BackgroundColor3 = Color3.fromRGB(100, 100, 255)
+        button.TextSize = button.TextSize + 2
+        task.wait(0.1)
+        button.BackgroundColor3 = originalColor
+        button.TextSize = button.TextSize - 2
+        callback()
+    end))
+end
+
+createActionButton("Medal", function()
+    local playerStats = LocalPlayer:FindFirstChild("playerstats")
+    if not playerStats then return end
+    local medals = playerStats:FindFirstChild("medals")
+    if medals and medals:IsA("IntValue") then
+        medals.Value = 1
+    end
+end)
 
 table.insert(globalConnections, UIS.InputBegan:Connect(function(input, processed)
     if processed then return end
@@ -128,9 +170,130 @@ table.insert(globalConnections, UIS.InputBegan:Connect(function(input, processed
     end
 end))
 
+local bodiesFolder = Workspace:WaitForChild("bodies")
+local notargetFolder = Workspace:WaitForChild("notarget")
+local throwablesFolder = Workspace:WaitForChild("throwables")
+local constructionsFolder = Workspace:WaitForChild("constructions")
+
+local function shouldIgnore(obj)
+    local n = obj.Name:lower()
+    if n:find("amnopouch") or n:find("medicalheal") or n:find("amno") or n:find("pouch") or n:find("firebeam") or n:find("firemuzzle") then
+        return true
+    end
+    if obj:IsA("BasePart") then
+        local name = obj.Name:lower()
+        if name == "warcry_part" or name == "bloodhitmarker" or name == "bloodsplatter" then
+            return true
+        end
+    end
+    for _, player in ipairs(Players:GetPlayers()) do
+        if obj.Name:lower():find(player.Name:lower()) then
+            return true
+        end
+    end
+    if obj.Name and obj.Name:lower():find("axe") then
+        return true
+    end
+    return false
+end
+
+local function AntiLag()
+    for _, m in ipairs(bodiesFolder:GetChildren()) do
+        if m and m:IsA("Model") and m.Parent then
+            task.defer(function()
+                if m and m.Parent then
+                    pcall(function()
+                        m:Destroy()
+                    end)
+                end
+            end)
+        end
+    end
+    bodiesFolder.ChildAdded:Connect(function(c)
+        if c and c:IsA("Model") and c.Parent then
+            task.defer(function()
+                if c and c.Parent then
+                    pcall(function()
+                        c:Destroy()
+                    end)
+                end
+            end)
+        end
+    end)
+
+    for _, obj in ipairs(notargetFolder:GetChildren()) do
+        if obj and obj.Parent and not shouldIgnore(obj) then
+            pcall(function()
+                obj:Destroy()
+            end)
+        end
+    end
+    notargetFolder.ChildAdded:Connect(function(obj)
+        if obj and obj.Parent and not shouldIgnore(obj) then
+            pcall(function()
+                obj:Destroy()
+            end)
+        end
+    end)
+
+    for _, obj in ipairs(throwablesFolder:GetChildren()) do
+        if obj and obj.Parent and not shouldIgnore(obj) then
+            pcall(function()
+                obj:Destroy()
+            end)
+        end
+    end
+    throwablesFolder.ChildAdded:Connect(function(obj)
+        if obj and obj.Parent and not shouldIgnore(obj) then
+            pcall(function()
+                obj:Destroy()
+            end)
+        end
+    end)
+
+    for _, obj in ipairs(constructionsFolder:GetChildren()) do
+        if obj and obj.Parent and not shouldIgnore(obj) then
+            if obj:IsA("Model") then
+                if obj.Name == "Barbed Wire" then
+                    pcall(function()
+                        obj:Destroy()
+                    end)
+                end
+            elseif obj:IsA("BasePart") then
+                if obj.Name:lower() == "barbwire" then
+                    pcall(function()
+                        obj:Destroy()
+                    end)
+                end
+            end
+        end
+    end
+    constructionsFolder.ChildAdded:Connect(function(obj)
+        if obj and obj.Parent and not shouldIgnore(obj) then
+            if obj:IsA("Model") then
+                if obj.Name == "Barbed Wire" then
+                    pcall(function()
+                        obj:Destroy()
+                    end)
+                end
+            elseif obj:IsA("BasePart") then
+                if obj.Name:lower() == "barbwire" then
+                    pcall(function()
+                        obj:Destroy()
+                    end)
+                end
+            end
+        end
+    end)
+end
+
 local function removeHighlight(character)
     local h = character:FindFirstChild(HIGHLIGHT_NAME)
-    if h then h:Destroy() end
+    if h and h.Parent then
+        pcall(function()
+            h:Destroy()
+        end)
+    end
 end
 
 local function applyProperties(part, props)
@@ -147,7 +310,9 @@ local function clearPerCharacterConnections(player)
     if cons then
         for _, c in ipairs(cons) do
             if c and typeof(c) == "RBXScriptConnection" and c.Connected then
-                c:Disconnect()
+                pcall(function()
+                    c:Disconnect()
+                end)
             end
         end
         perCharacterConnections[player] = nil
@@ -156,14 +321,11 @@ local function clearPerCharacterConnections(player)
     local data = trackedEnemies[player]
     if data and data.character then
         local character = data.character
-
-        if not character:IsDescendantOf(Workspace:FindFirstChild("notarget")) then
+        if character and character.Parent and not character:IsDescendantOf(Workspace:FindFirstChild("notarget")) then
             removeHighlight(character)
-
-            local head = character:WaitForChild("HeadHitbox")
-            local torso = character:WaitForChild("Torso")
-
-            if head then
+            local head = character:FindFirstChild("HeadHitbox")
+            local torso = character:FindFirstChild("Torso")
+            if head and head.Parent then
                 applyProperties(head, {
                     Size = Vector3.new(0.95, 0.95, 0.95),
                     Transparency = 0,
@@ -171,8 +333,7 @@ local function clearPerCharacterConnections(player)
                     Massless = false
                 })
             end
-
-            if torso then
+            if torso and torso.Parent then
                 applyProperties(torso, {
                     Size = Vector3.new(2, 2, 1),
                     Transparency = 0,
@@ -182,13 +343,14 @@ local function clearPerCharacterConnections(player)
             end
         end
     end
-
     trackedEnemies[player] = nil
 end
 
 local function applyLighting()
     for k, v in pairs(LIGHTING_SETTINGS) do
-        Lighting[k] = v
+        pcall(function()
+            Lighting[k] = v
+        end)
     end
 end
 
@@ -196,33 +358,13 @@ local function isEnemy(player)
     return player and player.Team and LocalPlayer.Team and player.Team ~= LocalPlayer.Team
 end
 
-local bodiesFolder = Workspace:WaitForChild("bodies")
-
-local function cleanupBodies()
-    if not bodiesFolder then return end
-
-    for _, m in ipairs(bodiesFolder:GetChildren()) do
-        if m:IsA("Model") then
-            m:Destroy()
-        end
-    end
-    table.insert(globalConnections, bodiesFolder.ChildAdded:Connect(function(c)
-        if c then
-            c:Destroy()
-        end
-    end))
-end
-
 local function createHighlight(character)
     if character:FindFirstChild(HIGHLIGHT_NAME) then return end
-
     local player = Players:GetPlayerFromCharacter(character)
     local fillColor = ESP_SETTINGS.FillColor
-
     if player and player ~= LocalPlayer and LocalPlayer:IsFriendsWith(player.UserId) then
         fillColor = Color3.fromRGB(128, 0, 128)
     end
-
     local h = Instance.new("Highlight")
     h.Name = HIGHLIGHT_NAME
     h.Adornee = character
@@ -244,17 +386,17 @@ local function updateEnemyHitboxes(character)
         return
     end
 
-    local head = character:WaitForChild("HeadHitbox")
-    local torso = character:WaitForChild("Torso")
+    local head = character:WaitForChild("HeadHitbox", 5)
+    local torso = character:WaitForChild("Torso", 5)
+    if not head or not torso then return end
+
     local helmet = character:FindFirstChild("helmet")
     local classValue = character:FindFirstChild("class")
     local eliteKitValue = character:FindFirstChild("elitekit")
-
     local isLancer = classValue and classValue.Value:lower() == "lancer"
     local isEliteLancer = eliteKitValue and eliteKitValue.Value:lower() == "lancer"
 
     local bigSize = Vector3.new(BASE_HITBOX_SIZE, BASE_HITBOX_SIZE, BASE_HITBOX_SIZE)
-
     local headProps, torsoProps
 
     if HitboxMode == 0 then
@@ -284,8 +426,12 @@ local function updateEnemyHitboxes(character)
         torsoProps = {Size = Vector3.new(2,2,1), Transparency = 0, CanCollide = true, Massless = false}
     end
 
-    applyProperties(head, headProps)
-    applyProperties(torso, torsoProps)
+    if head and head.Parent then
+        applyProperties(head, headProps)
+    end
+    if torso and torso.Parent then
+        applyProperties(torso, torsoProps)
+    end
 end
 
 table.insert(globalConnections, UIS.InputBegan:Connect(function(input)
@@ -299,7 +445,6 @@ table.insert(globalConnections, UIS.InputBegan:Connect(function(input)
                 updateEnemyHitboxes(data.character)
             end
         end
-
     elseif input.KeyCode == Enum.KeyCode.Minus then
         BASE_HITBOX_SIZE = math.max(1, BASE_HITBOX_SIZE - 1)
         print("Hitbox Size:", BASE_HITBOX_SIZE)
@@ -308,7 +453,6 @@ table.insert(globalConnections, UIS.InputBegan:Connect(function(input)
                 updateEnemyHitboxes(data.character)
             end
         end
-
     elseif input.KeyCode == Enum.KeyCode.Equals then
         BASE_HITBOX_SIZE = BASE_HITBOX_SIZE + 1
         print("Hitbox Size:", BASE_HITBOX_SIZE)
@@ -325,18 +469,18 @@ local function monitorHelmet(character, player)
     perCharacterConnections[player] = cons
 
     local function update()
-        if not character.Parent then return end
+        if not character or not character.Parent then return end
         updateEnemyHitboxes(character)
     end
 
     for _, child in character:GetChildren() do
-        if child.Name == "helmet" or child.Name == "helmetgone" then
+        if child and child.Parent and (child.Name == "helmet" or child.Name == "helmetgone") then
             table.insert(cons, child:GetPropertyChangedSignal("Name"):Connect(update))
         end
     end
 
     table.insert(cons, character.ChildAdded:Connect(function(child)
-        if child.Name == "helmet" or child.Name == "helmetgone" then
+        if child and child.Parent and (child.Name == "helmet" or child.Name == "helmetgone") then
             table.insert(cons, child:GetPropertyChangedSignal("Name"):Connect(update))
             update()
         end
@@ -345,12 +489,10 @@ end
 
 local function setupCharacter(player, character)
     clearPerCharacterConnections(player)
-
     if not character or not isEnemy(player) then return end
-	if character:IsDescendantOf(Workspace:FindFirstChild("notarget")) then return end
+    if character:IsDescendantOf(Workspace:FindFirstChild("notarget")) then return end
 
     trackedEnemies[player] = {character = character}
-
     createHighlight(character)
     updateEnemyHitboxes(character)
     monitorHelmet(character, player)
@@ -387,8 +529,19 @@ local function setupPersistentConnections(player)
 
     table.insert(cons, player:GetPropertyChangedSignal("Team"):Connect(function()
         clearPerCharacterConnections(player)
-        if player.Character then
-            setupCharacter(player, player.Character)
+        local char = player.Character
+        if char then
+            if isEnemy(player) then
+                createHighlight(char)
+                updateEnemyHitboxes(char)
+                monitorHelmet(char, player)
+                table.insert(cons, char.AncestryChanged:Connect(function(_, parent)
+                    if not parent then
+                        removeHighlight(char)
+                        clearPerCharacterConnections(player)
+                    end
+                end))
+            end
         end
     end))
 
@@ -413,7 +566,11 @@ local function trackAllPlayers()
     table.insert(globalConnections, Players.PlayerRemoving:Connect(function(p)
         if persistentPlayerConnections[p] then
             for _, c in ipairs(persistentPlayerConnections[p]) do
-                if c.Connected then c:Disconnect() end
+                if c and typeof(c) == "RBXScriptConnection" and c.Connected then
+                    pcall(function()
+                        c:Disconnect()
+                    end)
+                end
             end
             persistentPlayerConnections[p] = nil
         end
@@ -421,37 +578,114 @@ local function trackAllPlayers()
     end))
 end
 
-
 local function applyBuffs(character)
-    local perk = character:WaitForChild("perk")
-    local classValue = character:WaitForChild("class")
+    local perk = character:WaitForChild("perk", 5)
+    local classValue = character:WaitForChild("class", 5)
+    if not perk or not classValue then return end
+
     local elitekit = character:FindFirstChild("elitekit")
     local basePerk = "quickdraw"
     local localCons = {}
 
-    if CONFIG.EnableSpeed and not CONFIG.EnableSynergyBuff and character == LocalPlayer.Character then
-    if not character:FindFirstChild("cowboy") then
-        local cowboyModel = Instance.new("Model")
-        cowboyModel.Name = "cowboy"
-        cowboyModel.Parent = character
+    if CONFIG.EnableChems and character == LocalPlayer.Character then
+        local chems = character:WaitForChild("chems", 5)
+        if chems then
+            for _, c in chems:GetChildren() do
+                if c and c.Parent then
+                    pcall(function()
+                        c:Destroy()
+                    end)
+                end
+            end
+
+            local function addChem(name)
+                if not chems:FindFirstChild(name) then
+                    local v = Instance.new("IntValue")
+                    v.Name = name
+                    v.Parent = chems
+                end
+            end
+
+            if CONFIG.EnableOverkill then
+                addChem("hyd")
+                addChem("hal")
+                addChem("syn")
+
+                local overkillTools = {
+                    ["Mining Pick"] = true,
+                    ["Trench Mace"] = true,
+                    ["Combat Knife"] = true,
+                    ["Heavy Lance"] = true,
+                    ["Army Machete"] = true,
+                    ["Cavalry Sword"] = true,
+                    ["'Dan-Janiel' Bottle"] = true,
+                    ["Heavy Pick"] = true
+                }
+
+                local function checkTools()
+                    local hasOverkillTool = false
+                    for _, child in ipairs(character:GetChildren()) do
+                        if child:IsA("Tool") and overkillTools[child.Name] then
+                            hasOverkillTool = true
+                            break
+                        end
+                    end
+                    local hyd = chems:FindFirstChild("hyd")
+                    local mep = chems:FindFirstChild("mep")
+                    if hasOverkillTool then
+                        if hyd and hyd.Parent then hyd.Name = "mep" end
+                    else
+                        if mep and mep.Parent then mep.Name = "hyd" end
+                    end
+                end
+
+                checkTools()
+                table.insert(localCons, character.ChildAdded:Connect(function(child)
+                    if child:IsA("Tool") then checkTools() end
+                end))
+                table.insert(localCons, character.ChildRemoved:Connect(function(child)
+                    if child:IsA("Tool") then checkTools() end
+                end))
+            else
+                addChem("hyd")
+                addChem("hal")
+                addChem("mep")
+            end
+
+            table.insert(localCons, chems.ChildAdded:Connect(function(child)
+                if child and child.Parent and not (child:IsA("IntValue") and child.Name == "int") then
+                    pcall(function()
+                        child:Destroy()
+                    end)
+                end
+            end))
+        end
     end
 
-    if CONFIG.EnableOverkill then
-        if not elitekit then
-            elitekit = Instance.new("StringValue")
-            elitekit.Name = "elitekit"
-            elitekit.Parent = character
+    if CONFIG.EnableSpeed and not CONFIG.EnableSynergyBuff and character == LocalPlayer.Character then
+        if not character:FindFirstChild("cowboy") then
+            local cowboyModel = Instance.new("Model")
+            cowboyModel.Name = "cowboy"
+            cowboyModel.Parent = character
         end
-        elitekit.Value = "ocelot"
+        if CONFIG.EnableOverkill then
+            if not elitekit then
+                elitekit = Instance.new("StringValue")
+                elitekit.Name = "elitekit"
+                elitekit.Parent = character
+            end
+            elitekit.Value = "ocelot"
+        end
     end
-end
 
     if CONFIG.EnableFent and character == LocalPlayer.Character then
         if classValue.Value == "mortician" then
-            local supplies = character:WaitForChild("supplies")
-            table.insert(localCons, supplies.Changed:Connect(function(v)
-                if v <= 0 then supplies.Value = 1 end
-            end))
+            local supplies = character:WaitForChild("supplies", 5)
+            if supplies then
+                table.insert(localCons, supplies.Changed:Connect(function(v)
+                    if v <= 0 then supplies.Value = 1 end
+                end))
+            end
         elseif classValue.Value == "rook" then
             local function fixPick()
                 local tool = character:FindFirstChild("Heavy Pick")
@@ -471,13 +705,15 @@ end
         end
     end
 
-    if CONFIG.EnableCombo and not CONFIG.EnableSynergyBuff then
+    if CONFIG.EnableCombo and not CONFIG.EnableSynergyBuff and character == LocalPlayer.Character then
         if classValue.Value == "lancer" and perk.Value == "extrainv" then
             perk.Value = "marksman"
         elseif classValue.Value == "rook" and perk.Value == "extrainv" then
             perk.Value = "knockdown"
+        elseif classValue.Value == "soldat" and perk.Value == "ghost" then
+            perk.Value = "quickdraw"
         elseif perk.Value == "extrainv" or perk.Value == "ghost" then
-            local pool = {"quickdraw", "marksman", "knockdown", "vet"}
+            local pool = {"quickdraw", "vet", "knockdown", "marksman"}
             perk.Value = pool[math.random(1, #pool)]
         end
         if elitekit then
@@ -487,10 +723,12 @@ end
     end
 
     if CONFIG.EnableActionReset and character == LocalPlayer.Character then
-        local action = character:WaitForChild("action")
-        table.insert(localCons, action.Changed:Connect(function(v)
-            if v then action.Value = false end
-        end))
+        local action = character:WaitForChild("action", 5)
+        if action then
+            table.insert(localCons, action.Changed:Connect(function(v)
+                if v then action.Value = false end
+            end))
+        end
     end
 
     if CONFIG.EnableMedicalExpertise and not character:FindFirstChild("medical_expertise") then
@@ -501,30 +739,43 @@ end
 
     if CONFIG.EnableBuffs and character == LocalPlayer.Character then
         local buffs = {
-            "buff_advance",
-            "buff_defend",
-            "buff_focus",
-            "flagbuff",
-            "morale",
-            "tunnelratbuff",
-            "vanguardbuff"
+            "buff_advance", "buff_defend", "buff_focus", "flagbuff",
+            "morale", "tunnelratbuff", "vanguardbuff"
         }
-        if CONFIG.EnableOverkill and character == LocalPlayer.Character then
+        if CONFIG.EnableOverkill then
             table.insert(buffs, "buff_elite")
         end
+
         for _, child in character:GetChildren() do
-            if table.find(buffs, child.Name) then
-                child:Destroy()
+            if child and child.Parent and table.find(buffs, child.Name) then
+                pcall(function()
+                    child:Destroy()
+                end)
             end
         end
+
         for _, name in ipairs(buffs) do
             local v = Instance.new("StringValue")
             v.Name = name
             v.Parent = character
         end
+
+        local function removeCrippled(obj)
+            if obj and obj.Parent and obj.Name == "crippled" then
+                pcall(function()
+                    obj:Destroy()
+                end)
+            end
+        end
+
+        for _, child in character:GetChildren() do
+            removeCrippled(child)
+        end
+
+        table.insert(localCons, character.ChildAdded:Connect(removeCrippled))
     end
 
-    if CONFIG.EnableSynergyBuff then
+    if CONFIG.EnableSynergyBuff and character == LocalPlayer.Character then
         if not elitekit then
             elitekit = Instance.new("StringValue")
             elitekit.Name = "elitekit"
@@ -533,152 +784,121 @@ end
         elitekit.Value = classValue.Value
     end
 
-    if CONFIG.EnableChems and character == LocalPlayer.Character then
-        local chems = character:WaitForChild("chems")
-        for _, c in chems:GetChildren() do
-            c:Destroy()
-        end
+    if CONFIG.EnableMultiPerk and character == LocalPlayer.Character then
+        task.spawn(function()
+            local TOOL_PERKS = {
+                ["First Aid Pouch"] = "healing",
+                ["Mining Pick"]     = "tunnelrat",
+                ["Heavy Pick"]      = "tunnelrat",
+                ["Heavy Lance"]     = nil,
+            }
 
-        local function addChem(name)
-            if not chems:FindFirstChild(name) then
-                local v = Instance.new("IntValue")
-                v.Name = name
-                v.Parent = chems
-            end
-        end
+            local startPerk = perk.Value
+            local startAkimbo = startPerk == "akimbo"
 
-        if CONFIG.EnableOverkill and character == LocalPlayer.Character then
-            addChem("hyd")
-            addChem("hal")
-            addChem("syn")
-        else
-            addChem("hyd")
-            addChem("hal")
-            addChem("mep")
-        end
+            perk.Value = "sprinter"
+            task.wait(2)
 
-        table.insert(localCons, chems.ChildAdded:Connect(function(child)
-            if not (child:IsA("IntValue") and child.Name == "int") then
-                child:Destroy()
-            end
-        end))
-    end
-
-if CONFIG.EnableMultiPerk and character == LocalPlayer.Character then
-    task.spawn(function()
-        local TOOL_PERKS = {
-            ["First Aid Pouch"] = "healing",
-            ["Mining Pick"] = "tunnelrat",
-            ["Heavy Pick"] = "tunnelrat",
-            ["Heavy Lance"] = nil,
-        }
-
-        local startPerk = perk.Value 
-        local startAkimbo = startPerk == "akimbo"
-
-        perk.Value = "sprinter"
-        task.wait(2)
-        if perk.Parent then perk:Destroy() end
-
-        local currentPerk = Instance.new("StringValue")
-        currentPerk.Name = "perk"
-        currentPerk.Parent = character
-
-        local function updatePerk()
-            if character:FindFirstChild("First Aid Pouch") then
-                currentPerk.Value = "healing"
-                return
+            if perk and perk.Parent then
+                pcall(function()
+                    perk:Destroy()
+                end)
             end
 
-            for tool, p in pairs(TOOL_PERKS) do
-                if character:FindFirstChild(tool) then
-                    -- Heavy Lance uses starting perk if it was vet or butcher
-                    if tool == "Heavy Lance" and (startPerk == "vet" or startPerk == "butcher") then
-                        currentPerk.Value = startPerk
-                        return
-                    else
-                        currentPerk.Value = p
-                        return
-                    end
-                end
-            end
-			
-            if startAkimbo then
-                currentPerk.Value = "akimbo"
-            else
-                currentPerk.Value = startPerk or basePerk
-            end
-        end
+            local currentPerk = Instance.new("StringValue")
+            currentPerk.Name = "perk"
+            currentPerk.Parent = character
 
-        updatePerk()
-        table.insert(localCons, character.ChildAdded:Connect(updatePerk))
-        table.insert(localCons, character.ChildRemoved:Connect(updatePerk))
-
-        local active = false
-        local actionConn
-
-        local BLACKLISTED_TOOLS = {
-            ["Trench Mace"] = true,
-            ["First Aid Pouch"] = true,
-            ["Combat Knife"] = true,
-            ["Mining Pick"] = true,
-            ["Heavy Lance"] = true,
-            ["Heavy Pick"] = true,
-            ["'Commissar's Gift'"] = true,
-        }
-
-        local function hasValidTool()
-            for _, child in ipairs(character:GetChildren()) do
-                if child:IsA("Tool") and not BLACKLISTED_TOOLS[child.Name] then
-                    return true
-                end
-            end
-            return false
-        end
-
-        table.insert(localCons, UIS.InputBegan:Connect(function(input, processed)
-            if processed or input.KeyCode ~= Enum.KeyCode.R then return end
-            if active then return end
-
-            local action = character:WaitForChild("action")
-            if not action or action.Value ~= false then return end
-            if not hasValidTool() then return end
-
-            active = true
-            local original = currentPerk.Value
-            currentPerk.Value = "vet"
-
-            task.delay(1, function()
-                if not action.Parent or action.Value ~= true then
-                    currentPerk.Value = original
-                    active = false
+            local function updatePerk()
+                if character:FindFirstChild("First Aid Pouch") then
+                    currentPerk.Value = "healing"
                     return
                 end
-
-                actionConn = action.Changed:Connect(function(v)
-                    if v == false then
-                        task.delay(0.8, function()
-                            if currentPerk.Parent then
-                                currentPerk.Value = original
-                            end
-                            if actionConn then
-                                actionConn:Disconnect()
-                                actionConn = nil
-                            end
-                            active = false
-                        end)
+                for tool, p in pairs(TOOL_PERKS) do
+                    if character:FindFirstChild(tool) then
+                        if tool == "Heavy Lance" and (startPerk == "vet" or startPerk == "butcher") then
+                            currentPerk.Value = startPerk
+                            return
+                        else
+                            currentPerk.Value = p
+                            return
+                        end
                     end
+                end
+                if startAkimbo then
+                    currentPerk.Value = "akimbo"
+                else
+                    currentPerk.Value = basePerk
+                end
+            end
+
+            updatePerk()
+            table.insert(localCons, character.ChildAdded:Connect(updatePerk))
+            table.insert(localCons, character.ChildRemoved:Connect(updatePerk))
+
+            local active = false
+            local actionConn
+            local BLACKLISTED_TOOLS = {
+                ["Trench Mace"] = true, ["First Aid Pouch"] = true, ["Combat Knife"] = true,
+                ["Mining Pick"] = true, ["Heavy Lance"] = true, ["Heavy Pick"] = true,
+                ["'Dan-Janiel' Bottle"] = true, ["Army Machete"] = true,
+                ["Cavalry Sword"] = true, ["'Commissar's Gift'"] = true
+            }
+
+            local function hasValidTool()
+                for _, child in ipairs(character:GetChildren()) do
+                    if child:IsA("Tool") and not BLACKLISTED_TOOLS[child.Name] then
+                        return true
+                    end
+                end
+                return false
+            end
+
+            table.insert(localCons, UIS.InputBegan:Connect(function(input, processed)
+                if processed or input.KeyCode ~= Enum.KeyCode.R then return end
+                if active then return end
+
+                local action = character:FindFirstChild("action")
+                if not action or action.Value ~= false then return end
+                if not hasValidTool() then return end
+
+                active = true
+                local original = currentPerk.Value
+                currentPerk.Value = "vet"
+
+                task.delay(1, function()
+                    if not action or not action.Parent or action.Value ~= true then
+                        currentPerk.Value = original
+                        active = false
+                        return
+                    end
+
+                    actionConn = action.Changed:Connect(function(v)
+                        if v == false then
+                            task.delay(0.5, function()
+                                if currentPerk and currentPerk.Parent then
+                                    currentPerk.Value = original
+                                end
+                                if actionConn then
+                                    pcall(function()
+                                        actionConn:Disconnect()
+                                    end)
+                                    actionConn = nil
+                                end
+                                active = false
+                            end)
+                        end
+                    end)
                 end)
-            end)
-        end))
-    end)
-end
+            end))
+        end)
+    end
 
     if #localCons > 0 then
         local player = Players:GetPlayerFromCharacter(character)
         if player then
             perCharacterConnections[player] = perCharacterConnections[player] or {}
-            for _, c in localCons do
+            for _, c in ipairs(localCons) do
                 table.insert(perCharacterConnections[player], c)
             end
         end
@@ -687,7 +907,7 @@ end
 
 local function initialize()
     applyLighting()
-    cleanupBodies()
+    AntiLag()
     trackAllPlayers()
 
     if LocalPlayer.Character then
@@ -707,7 +927,15 @@ local function initialize()
         for _, p in ipairs(toClear) do
             clearPerCharacterConnections(p)
         end
+
         trackAllPlayers()
+
+        for _, p in ipairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and isEnemy(p) and p.Character and p.Character.Parent then
+                createHighlight(p.Character)
+                updateEnemyHitboxes(p.Character)
+            end
+        end
     end))
 end
 
@@ -716,10 +944,8 @@ task.spawn(function()
         task.wait()
         LocalPlayer = Players.LocalPlayer
     end
-
     if not LocalPlayer.Character then
         LocalPlayer.CharacterAdded:Wait()
     end
-
     initialize()
 end)
